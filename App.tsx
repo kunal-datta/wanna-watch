@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Button, StyleSheet, Image } from 'react-native';
+import { View, Text, Button, StyleSheet, Image, Modal, TouchableOpacity, ScrollView } from 'react-native';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, doc, updateDoc, onSnapshot, getDoc, setDoc, arrayUnion } from 'firebase/firestore';
+import { Ionicons } from '@expo/vector-icons';
 
 // Initialize Firebase (do this at the top level of your app)
 const firebaseConfig = {
@@ -88,6 +89,7 @@ interface AppState {
   ourList: Movie[];
   movieQueue: Movie[];
   page: number;
+  isOurListVisible: boolean;
 }
 
 function App() {
@@ -99,6 +101,7 @@ function App() {
     ourList: [],
     movieQueue: [],
     page: 1,
+    isOurListVisible: false,
   });
 
   // Add this useEffect to listen for matches
@@ -329,25 +332,29 @@ function App() {
       ) : (
         // Movie matching interface
         <View style={styles.matchingContainer}>
-          <Text style={styles.stats}>
-            Liked: {state.likedMoviesCount} | Our List: {state.ourList.length}
-          </Text>
-          
-          {/* Add Our List Modal/Section */}
-          {state.ourList.length > 0 && (
-            <View style={styles.ourListContainer}>
-              <Text style={styles.ourListTitle}>Our List</Text>
-              {state.ourList.map((movie) => (
-                <View key={movie.id} style={styles.ourListItem}>
-                  <Image
-                    source={{ uri: `${TMDB_IMAGE_BASE_URL}${movie.poster_path}` }}
-                    style={styles.ourListPoster}
-                  />
-                  <Text style={styles.ourListMovieTitle}>{movie.title}</Text>
-                </View>
-              ))}
-            </View>
-          )}
+          <View style={styles.header}>
+            <Text style={styles.stats}>
+              Liked: {state.likedMoviesCount}
+            </Text>
+            <TouchableOpacity 
+              onPress={() => setState(prev => ({ ...prev, isOurListVisible: true }))}
+              style={styles.ourListButton}
+            >
+              <Ionicons 
+                name="heart" 
+                size={24} 
+                color="#ff4b4b"
+              />
+              <Text style={styles.ourListCount}>{state.ourList.length}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Our List Modal */}
+          <OurListModal
+            visible={state.isOurListVisible}
+            onClose={() => setState(prev => ({ ...prev, isOurListVisible: false }))}
+            ourList={state.ourList}
+          />
 
           <View style={styles.movieCard}>
             <Text style={styles.movieTitle}>{state.currentMovie.title}</Text>
@@ -400,6 +407,57 @@ function App() {
     </View>
   );
 }
+
+const OurListModal = ({ 
+  visible, 
+  onClose, 
+  ourList 
+}: { 
+  visible: boolean; 
+  onClose: () => void; 
+  ourList: Movie[]; 
+}) => (
+  <Modal
+    animationType="slide"
+    transparent={true}
+    visible={visible}
+    onRequestClose={onClose}
+  >
+    <View style={styles.modalOverlay}>
+      <View style={styles.modalContent}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Our List</Text>
+          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <Ionicons name="close" size={24} color="#000" />
+          </TouchableOpacity>
+        </View>
+        
+        <ScrollView style={styles.ourListScroll}>
+          {ourList.length > 0 ? (
+            ourList.map((movie) => (
+              <View key={movie.id} style={styles.ourListItem}>
+                <Image
+                  source={{ uri: `${TMDB_IMAGE_BASE_URL}${movie.poster_path}` }}
+                  style={styles.ourListPoster}
+                />
+                <View style={styles.ourListItemDetails}>
+                  <Text style={styles.ourListMovieTitle}>{movie.title}</Text>
+                  <Text style={styles.ourListMovieYear}>
+                    {new Date(movie.release_date).getFullYear()}
+                  </Text>
+                </View>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.noMatchesText}>
+              No matches yet! Keep swiping to find movies you both like.
+            </Text>
+          )}
+        </ScrollView>
+      </View>
+    </View>
+  </Modal>
+);
 
 const styles = StyleSheet.create({
   container: {
@@ -546,6 +604,84 @@ const styles = StyleSheet.create({
   ourListMovieTitle: {
     fontSize: 16,
     flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  ourListButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+  },
+  ourListCount: {
+    marginLeft: 5,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    height: '80%',
+    padding: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  closeButton: {
+    padding: 5,
+  },
+  ourListScroll: {
+    flex: 1,
+  },
+  ourListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+    padding: 10,
+  },
+  ourListItemDetails: {
+    flex: 1,
+    marginLeft: 15,
+  },
+  ourListPoster: {
+    width: 60,
+    height: 90,
+    borderRadius: 8,
+  },
+  ourListMovieTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  ourListMovieYear: {
+    fontSize: 14,
+    color: '#666',
+  },
+  noMatchesText: {
+    textAlign: 'center',
+    fontSize: 16,
+    color: '#666',
+    marginTop: 20,
   },
 });
 
