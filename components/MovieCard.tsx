@@ -58,8 +58,11 @@ export const MovieCard = ({
 
 const styles = StyleSheet.create({
   card: {
-    flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 16,
+    margin: 8,
+    boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.1)',
   },
   image: {
     width: '100%',
