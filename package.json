@@ -27,7 +27,10 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d build",
+    "build": "npx expo export:web"
   },
   "name": "wanna-watch",
   "version": "1.0.0",
@@ -52,5 +55,6 @@
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
     "@react-native-community/cli": "^15.0.1",
     "@types/react-native": "^0.72.8"
-  }
+  },
+  "homepage": "https://kunal-datta.github.io/wanna-watch"
 }

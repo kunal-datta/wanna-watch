@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, Modal, StyleSheet, Platform, ScrollView, TextInput, SafeAreaView, ActivityIndicator } from 'react-native';
+import { View, Text, Image, TouchableOpacity, Modal, StyleSheet, Platform, ScrollView, TextInput, SafeAreaView, ActivityIndicator, Share } from 'react-native';
 import { Movie, Provider, AppState } from './types';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -158,17 +158,13 @@ export default function App() {
   };
 
   const handleShare = async () => {
-    if (!state.sessionId) {
-      alert('No active session to share');
-      return;
-    }
-    
     try {
-      await Clipboard.setStringAsync(state.sessionId);
-      alert('Session code copied to clipboard! Share this with your friend.');
+      await Share.share({
+        message: `Join my movie matching session! Use code: ${state.sessionId}`,
+        title: "What Should We Watch?"
+      });
     } catch (error) {
-      console.error('Error copying to clipboard:', error);
-      alert('Could not copy session code. Your code is: ' + state.sessionId);
+      console.error(error);
     }
   };
 
@@ -388,7 +384,7 @@ export default function App() {
               onPress={handleShare}
               style={styles.headerButton}
             >
-              <Ionicons name="person-add" size={24} color="#007AFF" />
+              <Ionicons name="share-outline" size={24} color="#007AFF" />
             </TouchableOpacity>
 
             <View style={styles.statsContainer}>
