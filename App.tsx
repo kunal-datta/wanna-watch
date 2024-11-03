@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, Modal, StyleSheet, Platform, ScrollView } from 'react-native';
+import { View, Text, Image, TouchableOpacity, Modal, StyleSheet, Platform, ScrollView, TextInput, SafeAreaView, ActivityIndicator } from 'react-native';
 import { Movie, Provider, AppState } from './types';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -19,6 +19,68 @@ const firebaseConfig = {
 // Initialize Firebase
 initializeApp(firebaseConfig);
 
+const JoinSessionModal = ({ 
+  visible, 
+  onClose, 
+  onJoin 
+}: { 
+  visible: boolean; 
+  onClose: () => void; 
+  onJoin: (code: string) => void;
+}) => {
+  const [code, setCode] = useState('');
+
+  return (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Join Session</Text>
+          
+          <TextInput
+            style={styles.input}
+            placeholder="Enter session code"
+            placeholderTextColor="#666"
+            onChangeText={setCode}
+            value={code}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <View style={styles.modalButtons}>
+            <TouchableOpacity 
+              style={[styles.modalButton, styles.cancelButton]} 
+              onPress={() => {
+                setCode('');
+                onClose();
+              }}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.modalButton, styles.joinButton]}
+              onPress={() => {
+                if (code.trim()) {
+                  onJoin(code.trim());
+                  setCode('');
+                  onClose();
+                }
+              }}
+            >
+              <Text style={styles.joinButtonText}>Join</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 export default function App() {
   const [state, setState] = useState<AppState>({
     sessionId: null,
@@ -32,6 +94,9 @@ export default function App() {
     isOurListVisible: false,
     isMovieModalVisible: false,
   });
+
+  const [isJoinModalVisible, setIsJoinModalVisible] = useState(false);
+  const [sessionCode, setSessionCode] = useState('');
 
   const TMDB_API_KEY = 'da0ecdd247617155169cc70ef1d05bda';
   const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500';
@@ -112,82 +177,87 @@ export default function App() {
     fetchNextMovie();
   }, []);
 
-  const MovieDetailModal = ({ 
-    movie, 
-    providers, 
-    visible, 
-    onClose 
-  }: { 
-    movie: Movie; 
-    providers: Provider[];
-    visible: boolean; 
-    onClose: () => void;
-  }) => (
-    <Modal
-      animationType="slide"
-      transparent={true}
-      visible={visible}
-      onRequestClose={onClose}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color="#000" />
-            </TouchableOpacity>
-          </View>
+  const MovieDetailModal = ({ movie, providers, visible, onClose }) => {
+    if (!movie) return null;
+    
+    return (
+      <Modal
+        animationType="slide"
+        transparent={false}
+        visible={visible}
+        onRequestClose={onClose}
+      >
+        <View style={styles.modalContainer}>
+          <ScrollView style={styles.modalScroll} bounces={false}>
+            {/* Hero Section */}
+            <View style={styles.modalHero}>
+              <Image
+                source={{ uri: `${TMDB_IMAGE_BASE_URL}${movie.backdrop_path || movie.poster_path}` }}
+                style={styles.modalBackdrop}
+              />
+              <View style={styles.darkOverlay} />
+              <TouchableOpacity 
+                style={styles.closeButton}
+                onPress={onClose}
+              >
+                <Ionicons name="close-circle" size={32} color="#FFF" />
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>{movie.title}</Text>
+            </View>
 
-          <ScrollView style={styles.modalScroll}>
-            <Text style={styles.modalTitle}>{movie.title}</Text>
-            
-            <Image
-              source={{ uri: `${TMDB_IMAGE_BASE_URL}${movie.poster_path}` }}
-              style={styles.modalPoster}
-            />
-            
-            <View style={styles.modalInfo}>
-              <View style={styles.modalRatingRow}>
-                <Text style={styles.modalYear}>
-                  {new Date(movie.release_date).getFullYear()}
-                </Text>
-                <Text style={styles.modalRating}>
-                  Rating: {movie.vote_average.toFixed(1)}/10
-                </Text>
+            {/* Content Section */}
+            <View style={styles.modalContent}>
+              {/* Quick Stats */}
+              <View style={styles.statsRow}>
+                <View style={styles.statItem}>
+                  <Ionicons name="star" size={20} color="#FFD700" />
+                  <Text style={styles.statText}>{movie.vote_average.toFixed(1)}</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Ionicons name="calendar-outline" size={20} color="#666" />
+                  <Text style={styles.statText}>
+                    {new Date(movie.release_date).getFullYear()}
+                  </Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Ionicons name="people-outline" size={20} color="#666" />
+                  <Text style={styles.statText}>{movie.vote_count} votes</Text>
+                </View>
               </View>
 
-              <View style={styles.modalWatchOptions}>
-                <Text style={styles.modalSectionTitle}>Watch on:</Text>
-                <View style={styles.modalProviders}>
-                  {providers.length > 0 ? (
-                    providers.map((provider) => (
+              {/* Overview */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Overview</Text>
+                <Text style={styles.overview}>{movie.overview}</Text>
+              </View>
+
+              {/* Streaming Options */}
+              {providers.length > 0 && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Available on</Text>
+                  <View style={styles.providersGrid}>
+                    {providers.map(provider => (
                       <View key={provider.provider_id} style={styles.modalProviderItem}>
                         <Image
                           source={{ uri: `${TMDB_IMAGE_BASE_URL}${provider.logo_path}` }}
                           style={styles.modalProviderLogo}
                         />
-                        <Text style={styles.modalProviderName}>
+                        <Text style={styles.providerName} numberOfLines={1}>
                           {provider.provider_name}
                         </Text>
                       </View>
-                    ))
-                  ) : (
-                    <Text style={styles.noProvidersText}>
-                      No streaming options available
-                    </Text>
-                  )}
+                    ))}
+                  </View>
                 </View>
-              </View>
-
-              <View style={styles.modalOverviewSection}>
-                <Text style={styles.modalSectionTitle}>Overview</Text>
-                <Text style={styles.modalOverview}>{movie.overview}</Text>
-              </View>
+              )}
             </View>
           </ScrollView>
         </View>
-      </View>
-    </Modal>
-  );
+      </Modal>
+    );
+  };
 
   const createSession = async () => {
     try {
@@ -250,8 +320,9 @@ export default function App() {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#f8f9fa' }}>
       {!state.sessionId ? (
+        // Welcome Screen
         <View style={styles.welcomeContainer}>
           <View style={styles.welcomeContent}>
             <Ionicons 
@@ -289,18 +360,15 @@ export default function App() {
               </View>
 
               <TouchableOpacity 
-                style={styles.joinButton} 
-                onPress={() => {
-                  const code = prompt('Enter session code:');
-                  if (code) joinSession(code);
-                }}
+                style={[styles.createButton, { backgroundColor: '#5856D6' }]} 
+                onPress={() => setIsJoinModalVisible(true)}
                 activeOpacity={0.8}
               >
                 <View style={styles.buttonIconContainer}>
                   <Ionicons name="enter" size={24} color="#FFF" />
                 </View>
                 <View style={styles.buttonTextContainer}>
-                  <Text style={styles.buttonPrimaryText}>Join Session</Text>
+                  <Text style={styles.buttonPrimaryText}>Join a Session</Text>
                   <Text style={styles.buttonSecondaryText}>Enter a friend's session code</Text>
                 </View>
               </TouchableOpacity>
@@ -312,126 +380,112 @@ export default function App() {
           </Text>
         </View>
       ) : (
-        <View style={styles.container}>
-          {state.currentMovie && (
-            <View style={styles.matchingContainer}>
-              <View style={styles.header}>
-                <TouchableOpacity 
-                  onPress={handleShare}
-                  style={styles.headerButton}
-                >
-                  <Ionicons name="person-add" size={24} color="#007AFF" />
-                </TouchableOpacity>
+        // Movie Matching Screen
+        <View style={styles.matchingContainer}>
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity 
+              onPress={handleShare}
+              style={styles.headerButton}
+            >
+              <Ionicons name="person-add" size={24} color="#007AFF" />
+            </TouchableOpacity>
 
-                <View style={styles.statsContainer}>
-                  <Ionicons name="heart" size={16} color="#ff4b4b" />
-                  <Text style={styles.stats}>{state.likedMoviesCount} Liked</Text>
-                </View>
+            <View style={styles.statsContainer}>
+              <Text style={styles.stats}>
+                Liked: {state.likedMoviesCount}
+              </Text>
+            </View>
 
-                <TouchableOpacity 
-                  onPress={() => setState(prev => ({ ...prev, isOurListVisible: true }))}
-                  style={styles.headerButton}
-                >
-                  <View style={styles.matchBadge}>
-                    <Text style={styles.matchCount}>{state.ourList.length}</Text>
-                  </View>
-                  <Ionicons name="heart-circle" size={28} color="#ff4b4b" />
-                </TouchableOpacity>
-              </View>
+            <TouchableOpacity 
+              onPress={() => setState(prev => ({ ...prev, isOurListVisible: true }))}
+              style={styles.headerButton}
+            >
+              <Ionicons name="heart" size={24} color="#ff4b4b" />
+            </TouchableOpacity>
+          </View>
 
-              <View style={styles.cardContainer}>
-                <TouchableOpacity 
-                  style={styles.cardContainer}
-                  onPress={() => setState(prev => ({ ...prev, isMovieModalVisible: true }))}
-                  activeOpacity={0.9}
-                >
-                  <View style={styles.movieCard}>
-                    <Text style={styles.movieTitle} numberOfLines={2}>
-                      {state.currentMovie.title}
-                    </Text>
-                    
-                    <Image
-                      source={{ uri: `${TMDB_IMAGE_BASE_URL}${state.currentMovie.poster_path}` }}
-                      style={styles.moviePoster}
-                    />
-                    
-                    <View style={styles.infoContainer}>
-                      <View style={styles.ratingRow}>
-                        <View style={styles.ratingBadge}>
-                          <Ionicons name="star" size={16} color="#FFD700" />
-                          <Text style={styles.movieRating}>
-                            {state.currentMovie.vote_average.toFixed(1)}
-                          </Text>
-                        </View>
-                        
-                        <View style={styles.yearBadge}>
-                          <Text style={styles.movieYear}>
-                            {new Date(state.currentMovie.release_date).getFullYear()}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.watchOptionsContainer}>
-                        <Text style={styles.watchOptionsTitle}>Watch on:</Text>
-                        <View style={styles.providersContainer}>
-                          {state.currentProviders.length > 0 ? (
-                            state.currentProviders.map((provider) => (
-                              <View key={provider.provider_id} style={styles.providerItem}>
-                                <Image
-                                  source={{ uri: `${TMDB_IMAGE_BASE_URL}${provider.logo_path}` }}
-                                  style={styles.providerLogo}
-                                />
-                                <Text style={styles.providerName} numberOfLines={1}>
-                                  {provider.provider_name}
-                                </Text>
-                              </View>
-                            ))
-                          ) : (
-                            <Text style={styles.noProvidersText}>
-                              Not currently streaming
-                            </Text>
-                          )}
-                        </View>
-                      </View>
+          {/* Card */}
+          {state.currentMovie ? (
+            <View style={styles.cardContainer}>
+              <TouchableOpacity 
+                style={styles.movieCard}
+                onPress={() => setState(prev => ({ ...prev, isMovieModalVisible: true }))}
+                activeOpacity={0.95}
+              >
+                <Image
+                  source={{ uri: `${TMDB_IMAGE_BASE_URL}${state.currentMovie.poster_path}` }}
+                  style={styles.moviePoster}
+                />
+                <View style={styles.infoContainer}>
+                  <Text style={styles.movieTitle} numberOfLines={2}>
+                    {state.currentMovie.title}
+                  </Text>
+                  
+                  <View style={styles.watchOptionsContainer}>
+                    <Text style={styles.watchOptionsTitle}>Available on:</Text>
+                    <View style={styles.providersContainer}>
+                      {state.currentProviders.length > 0 ? (
+                        state.currentProviders.map((provider) => (
+                          <View key={provider.provider_id} style={styles.providerItem}>
+                            <Image
+                              source={{ uri: `${TMDB_IMAGE_BASE_URL}${provider.logo_path}` }}
+                              style={styles.providerLogo}
+                            />
+                          </View>
+                        ))
+                      ) : (
+                        <Text style={styles.noProvidersText}>Not currently streaming</Text>
+                      )}
                     </View>
                   </View>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.buttonContainer}>
-                <View style={styles.buttonWrapper}>
-                  <TouchableOpacity 
-                    style={[styles.actionButton, styles.nopeButton]} 
-                    onPress={handleDislike}
-                  >
-                    <Ionicons name="close-circle" size={32} color="#ff4b4b" />
-                    <Text style={[styles.actionButtonText, styles.nopeButtonText]}>Pass</Text>
-                  </TouchableOpacity>
                 </View>
-
-                <View style={styles.buttonWrapper}>
-                  <TouchableOpacity 
-                    style={[styles.actionButton, styles.likeButton]} 
-                    onPress={handleLike}
-                  >
-                    <Ionicons name="heart-circle" size={32} color="#4bff4b" />
-                    <Text style={[styles.actionButtonText, styles.likeButtonText]}>Like</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#007AFF" />
+              <Text style={styles.loadingText}>Loading movies...</Text>
             </View>
           )}
+
+          {/* Action Buttons */}
           {state.currentMovie && (
-            <MovieDetailModal
-              movie={state.currentMovie}
-              providers={state.currentProviders}
-              visible={state.isMovieModalVisible}
-              onClose={() => setState(prev => ({ ...prev, isMovieModalVisible: false }))}
-            />
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity 
+                style={[styles.actionButton, styles.nopeButton]} 
+                onPress={handleDislike}
+              >
+                <Ionicons name="close-circle" size={32} color="#ff4b4b" />
+                <Text style={[styles.actionButtonText, styles.nopeButtonText]}>Pass</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.actionButton, styles.likeButton]} 
+                onPress={handleLike}
+              >
+                <Ionicons name="heart-circle" size={32} color="#4bff4b" />
+                <Text style={[styles.actionButtonText, styles.likeButtonText]}>Like</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       )}
-    </View>
+
+      {/* Join Session Modal */}
+      <JoinSessionModal
+        visible={isJoinModalVisible}
+        onClose={() => setIsJoinModalVisible(false)}
+        onJoin={joinSession}
+      />
+
+      <MovieDetailModal
+        movie={state.currentMovie}
+        providers={state.currentProviders}
+        visible={state.isMovieModalVisible}
+        onClose={() => setState(prev => ({ ...prev, isMovieModalVisible: false }))}
+      />
+    </SafeAreaView>
   );
 }
 
@@ -446,49 +500,96 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8f9fa',
   },
   header: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    width: '100%',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 3,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+    zIndex: 2,
+    height: 35,
   },
   cardContainer: {
-    flex: 1,
-    padding: 15,
-    justifyContent: 'center',
+    position: 'absolute',
+    top: 45, // Just below header
+    left: 0,
+    right: 0,
+    bottom: 80, // Space for bottom buttons
+    paddingHorizontal: 15,
   },
   movieCard: {
+    width: '100%',
+    height: '100%',
     backgroundColor: 'white',
-    borderRadius: 20,
-    padding: 15,
+    borderRadius: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
     elevation: 5,
+    overflow: 'hidden',
   },
   moviePoster: {
     width: '100%',
-    height: undefined,
-    aspectRatio: 2/3,
-    borderRadius: 12,
-    marginBottom: 12,
+    height: '75%',
+    resizeMode: 'cover',
   },
   infoContainer: {
-    gap: 12,
+    flex: 1,
+    padding: 12,
+    gap: 8,
+  },
+  movieTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 4,
+  },
+  watchOptionsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  watchOptionsTitle: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  providersContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  providerItem: {
+    backgroundColor: '#f8f9fa',
+    padding: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  providerLogo: {
+    width: 24,
+    height: 24,
+    borderRadius: 4,
+  },
+  noProvidersText: {
+    color: '#666',
+    fontStyle: 'italic',
+    fontSize: 13,
   },
   ratingRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 5,
   },
   ratingBadge: {
     flexDirection: 'row',
@@ -519,57 +620,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#666',
   },
-  watchOptionsContainer: {
-    backgroundColor: '#F8F9FA',
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-  },
-  watchOptionsTitle: {
-    fontSize: 14,
-    color: '#495057',
-    marginBottom: 8,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  providersContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  providerItem: {
-    alignItems: 'center',
-    width: 60,
-  },
-  providerLogo: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    marginBottom: 4,
-    backgroundColor: 'white',
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-  },
-  providerName: {
-    fontSize: 10,
-    color: '#495057',
-    textAlign: 'center',
-  },
-  movieDescription: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: '#444',
-  },
   buttonContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 80,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 20,
-    paddingHorizontal: 20,
-    backgroundColor: 'white',
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
+    alignItems: 'center',
+    paddingHorizontal: 30,
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(0, 0, 0, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   buttonWrapper: {
     paddingHorizontal: 10,
@@ -579,7 +646,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 25,
+    borderRadius: 20,
     gap: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -593,12 +660,12 @@ const styles = StyleSheet.create({
   },
   nopeButton: {
     backgroundColor: '#fff0f0',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#ff4b4b',
   },
   likeButton: {
     backgroundColor: '#f0fff0',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#4bff4b',
   },
   nopeButtonText: {
@@ -609,7 +676,7 @@ const styles = StyleSheet.create({
   },
   inviteButton: {
     padding: 8,
-    zIndex: 2,
+    zIndex: 8,
   },
   ourListButton: {
     flexDirection: 'row',
@@ -622,9 +689,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   stats: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '600',
+    fontSize: 13,
+    color: '#333',
+    fontWeight: '500',
   },
   matchBadge: {
     position: 'absolute',
@@ -644,33 +711,44 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   headerButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: '#f8f9fa',
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 122, 255, 0.1)',
+    borderRadius: 18,
+    width: 36,
+    height: 36,
   },
   statsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 4,
     borderRadius: 15,
     gap: 6,
   },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
   modalContent: {
     backgroundColor: 'white',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    height: '90%',
+    borderRadius: 20,
+    padding: 20,
     width: '100%',
+    maxWidth: 340,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 5,
   },
   modalHeader: {
-    padding: 15,
+    padding: 1,
     flexDirection: 'row',
     justifyContent: 'flex-end',
     borderBottomWidth: 1,
@@ -683,9 +761,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modalTitle: {
-    fontSize: 24,
+    fontSize: 2,
     fontWeight: 'bold',
-    padding: 15,
+    color: '#1a1a1a',
+    marginBottom: 20,
+    textAlign: 'center',
   },
   modalPoster: {
     width: '100%',
@@ -713,7 +793,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   modalSectionTitle: {
-    fontSize: 18,
+    fontSize: 1,
     fontWeight: '600',
     marginBottom: 10,
   },
@@ -749,77 +829,74 @@ const styles = StyleSheet.create({
     color: '#666',
     fontStyle: 'italic',
     fontSize: 14,
+    textAlign: 'center',
   },
   welcomeContainer: {
     flex: 1,
     backgroundColor: '#fff',
-    justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 20,
+    paddingHorizontal: 20,
   },
   welcomeContent: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 30,
+    alignItems: 'center',
+    paddingBottom: 40,
   },
   welcomeIcon: {
-    marginBottom: 20,
+    marginBottom: 24,
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 12,
     color: '#1a1a1a',
+    marginBottom: 12,
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 16,
-    textAlign: 'center',
     color: '#666',
-    marginBottom: 40,
-    lineHeight: 22,
+    textAlign: 'center',
+    marginBottom: 20,
   },
   welcomeButtonContainer: {
     width: '100%',
-    maxWidth: 340,
     gap: 20,
+    marginTop: 40,
   },
   createButton: {
     flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#007AFF',
     borderRadius: 16,
-    padding: 16,
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    height: 72,
   },
   joinButton: {
     flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#5856D6',
     borderRadius: 16,
-    padding: 16,
-    shadowColor: '#5856D6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   buttonIconContainer: {
-    width: 48,
-    height: 48,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    width: 72,
+    height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
   },
   buttonTextContainer: {
     flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
   },
   buttonPrimaryText: {
     color: '#FFF',
@@ -828,13 +905,13 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   buttonSecondaryText: {
-    color: 'rgba(255, 255, 255, 0.8)',
-    fontSize: 13,
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 14,
   },
   dividerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 8,
+    marginVertical: 10,
   },
   dividerLine: {
     flex: 1,
@@ -852,5 +929,324 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginTop: 20,
+  },
+  input: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 16,
+    color: '#1a1a1a',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 1,
+    paddingHorizontal: 1,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  joinButton: {
+    backgroundColor: '#5856D6',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  joinButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  detailModalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+
+  detailModalScroll: {
+    flex: 1,
+  },
+
+  heroSection: {
+    height: 45,
+    position: 'relative',
+  },
+
+  detailPoster: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+
+  closeButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    zIndex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 20,
+  },
+
+  detailContent: {
+    marginTop: -40,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    padding: 20,
+    paddingTop: 30,
+  },
+
+  titleSection: {
+    marginBottom: 1,
+  },
+
+  detailTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#1a1a1a',
+    marginBottom: 8,
+  },
+
+  detailYear: {
+    fontSize: 18,
+    color: '#666',
+  },
+
+  ratingSection: {
+    flexDirection: 'row',
+    marginBottom: 20,
+  },
+
+  detailRatingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF9E6',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 15,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#FFE5B4',
+  },
+
+  detailRating: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#B8860B',
+  },
+
+  detailSection: {
+    marginBottom: 25,
+  },
+
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 15,
+  },
+
+  detailProviders: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 15,
+  },
+
+  detailProviderItem: {
+    alignItems: 'center',
+    width: 80,
+  },
+
+  detailProviderLogo: {
+    width: 50,
+    height: 50,
+    borderRadius: 10,
+    marginBottom: 5,
+  },
+
+  detailProviderName: {
+    fontSize: 12,
+    textAlign: 'center',
+    color: '#666',
+  },
+
+  detailOverview: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#444',
+  },
+
+  detailGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 20,
+  },
+
+  detailGridItem: {
+    flex: 1,
+    minWidth: 150,
+  },
+
+  detailLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 4,
+  },
+
+  detailValue: {
+    fontSize: 16,
+    color: '#1a1a1a',
+    fontWeight: '500',
+  },
+
+  safeAreaContainer: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+  },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 15,
+  },
+
+  loadingText: {
+    fontSize: 16,
+    color: '#666',
+  },
+
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+
+  modalScroll: {
+    flex: 1,
+  },
+
+  modalHero: {
+    height: 400,
+    position: 'relative',
+  },
+
+  modalBackdrop: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+
+  closeButton: {
+    position: 'absolute',
+    top: 44,
+    right: 16,
+    zIndex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 20,
+  },
+
+  modalTitle: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    color: '#FFF',
+    fontSize: 32,
+    fontWeight: 'bold',
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+
+  modalContent: {
+    padding: 20,
+    gap: 24,
+  },
+
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 20,
+    paddingVertical: 10,
+  },
+
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+
+  statText: {
+    fontSize: 16,
+    color: '#444',
+    fontWeight: '600',
+  },
+
+  statDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: '#ddd',
+  },
+
+  section: {
+    gap: 12,
+  },
+
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1a1a1a',
+  },
+
+  overview: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#444',
+  },
+
+  providersGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+  },
+
+  modalProviderItem: {
+    alignItems: 'center',
+    width: 80,
+  },
+
+  modalProviderLogo: {
+    width: 50,
+    height: 50,
+    borderRadius: 10,
+    marginBottom: 6,
+  },
+
+  providerName: {
+    fontSize: 12,
+    textAlign: 'center',
+    color: '#666',
+  },
+
+  darkOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 200,
+    backgroundColor: 'rgba(0,0,0,0.6)',
   },
 });
