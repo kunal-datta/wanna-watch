@@ -293,6 +293,19 @@ function App() {
     await fetchNextMovie();
   };
 
+  // Add this helper function
+  const handleShare = async () => {
+    if (!state.sessionId) return;
+    
+    try {
+      await navigator.clipboard.writeText(state.sessionId);
+      alert('Session code copied to clipboard! Share this with your friend.');
+    } catch (error) {
+      console.error('Error copying to clipboard:', error);
+      alert('Could not copy session code. Your code is: ' + state.sessionId);
+    }
+  };
+
   console.log('Current state:', state);
 
   return (
@@ -333,9 +346,21 @@ function App() {
         // Movie matching interface
         <View style={styles.matchingContainer}>
           <View style={styles.header}>
+            <TouchableOpacity 
+              onPress={handleShare}
+              style={styles.inviteButton}
+            >
+              <Ionicons 
+                name="person-add" 
+                size={24} 
+                color="#666"
+              />
+            </TouchableOpacity>
+
             <Text style={styles.stats}>
               Liked: {state.likedMoviesCount}
             </Text>
+
             <TouchableOpacity 
               onPress={() => setState(prev => ({ ...prev, isOurListVisible: true }))}
               style={styles.ourListButton}
@@ -682,6 +707,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     marginTop: 20,
+  },
+  inviteButton: {
+    padding: 8,
   },
 });
 
