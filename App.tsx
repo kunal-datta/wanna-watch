@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, Button, StyleSheet, Image } from 'react-native';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, doc, updateDoc, onSnapshot, getDoc, setDoc, arrayUnion } from 'firebase/firestore';
 
 // Initialize Firebase (do this at the top level of your app)
 const firebaseConfig = {
@@ -79,29 +79,56 @@ const ProvidersSection = ({ providers, type }: {
   );
 };
 
+// Update the state interface (add this before App function)
+interface AppState {
+  sessionId: string | null;
+  userId: string | null;
+  currentMovie: Movie | null;
+  likedMoviesCount: number;
+  ourList: Movie[];
+  movieQueue: Movie[];
+  page: number;
+}
+
 function App() {
-  const [state, setState] = useState({
+  const [state, setState] = useState<AppState>({
     sessionId: null,
     userId: null,
-    partnerId: null,
-    currentMovie: null as Movie | null,
+    currentMovie: null,
     likedMoviesCount: 0,
-    ourListCount: 0,
-    matches: [],
-    movieQueue: [] as Movie[], // Add this to cache movies
-    page: 1, // Add this to track pagination
+    ourList: [],
+    movieQueue: [],
+    page: 1,
   });
+
+  // Add this useEffect to listen for matches
+  useEffect(() => {
+    if (!state.sessionId) return;
+
+    const sessionRef = doc(db, 'sessions', state.sessionId);
+    const unsubscribe = onSnapshot(sessionRef, (doc) => {
+      if (doc.exists()) {
+        const sessionData = doc.data();
+        if (sessionData.ourList) {
+          setState(prev => ({
+            ...prev,
+            ourList: sessionData.ourList
+          }));
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [state.sessionId]);
 
   const createSession = async () => {
     try {
-      console.log('Starting session creation...');
       const sessionsRef = collection(db, 'sessions');
-      console.log('Collection reference created');
-      
       const docRef = await addDoc(sessionsRef, {
         createdAt: new Date(),
         users: [state.userId],
-        matches: []
+        likes: {},
+        ourList: []
       });
       
       console.log("Session created with ID: ", docRef.id);
@@ -112,12 +139,20 @@ function App() {
     }
   };
 
-  const joinSession = async (code) => {
+  const joinSession = async (code: string) => {
     try {
-      const sessionRef = doc(collection(db, 'sessions'), code);
-      await setDoc(sessionRef, {
-        users: [state.userId]
-      }, { merge: true });
+      const sessionRef = doc(db, 'sessions', code);
+      
+      // First check if session exists
+      const sessionDoc = await getDoc(sessionRef);
+      if (!sessionDoc.exists()) {
+        throw new Error('Session not found');
+      }
+
+      // Update the session with the new user
+      await updateDoc(sessionRef, {
+        users: arrayUnion(state.userId)
+      });
 
       setState(prev => ({
         ...prev,
@@ -125,6 +160,7 @@ function App() {
       }));
     } catch (error) {
       console.error('Error joining session:', error);
+      alert('Failed to join session. Please check the code and try again.');
     }
   };
 
@@ -211,16 +247,38 @@ function App() {
     }
   };
 
-  // Add handlers for like/dislike
+  // Update handleLike function
   const handleLike = async () => {
-    if (!state.currentMovie) return;
+    if (!state.currentMovie || !state.sessionId) return;
     
     try {
-      // TODO: Save like to Firebase
+      const sessionRef = doc(db, 'sessions', state.sessionId);
+      const movieId = state.currentMovie.id;
+      
+      // Add the like to user's likes in Firebase
+      await updateDoc(sessionRef, {
+        [`likes.${state.userId}.${movieId}`]: true
+      });
+
+      // Check if both users liked this movie
+      const sessionDoc = await getDoc(sessionRef);
+      const sessionData = sessionDoc.data();
+      const otherUserLikes = Object.entries(sessionData?.likes || {})
+        .find(([uid]) => uid !== state.userId)?.[1] || {};
+
+      if (otherUserLikes[movieId]) {
+        // It's a match! Add to ourList
+        const updatedOurList = [...(sessionData.ourList || []), state.currentMovie];
+        await updateDoc(sessionRef, {
+          ourList: updatedOurList
+        });
+      }
+
       setState(prev => ({
         ...prev,
         likedMoviesCount: prev.likedMoviesCount + 1
       }));
+      
       await fetchNextMovie();
     } catch (error) {
       console.error('Error liking movie:', error);
@@ -272,9 +330,25 @@ function App() {
         // Movie matching interface
         <View style={styles.matchingContainer}>
           <Text style={styles.stats}>
-            Liked: {state.likedMoviesCount} | Matches: {state.matches.length}
+            Liked: {state.likedMoviesCount} | Our List: {state.ourList.length}
           </Text>
           
+          {/* Add Our List Modal/Section */}
+          {state.ourList.length > 0 && (
+            <View style={styles.ourListContainer}>
+              <Text style={styles.ourListTitle}>Our List</Text>
+              {state.ourList.map((movie) => (
+                <View key={movie.id} style={styles.ourListItem}>
+                  <Image
+                    source={{ uri: `${TMDB_IMAGE_BASE_URL}${movie.poster_path}` }}
+                    style={styles.ourListPoster}
+                  />
+                  <Text style={styles.ourListMovieTitle}>{movie.title}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
           <View style={styles.movieCard}>
             <Text style={styles.movieTitle}>{state.currentMovie.title}</Text>
             
@@ -444,6 +518,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     color: '#666',
+  },
+  ourListContainer: {
+    marginTop: 20,
+    width: '100%',
+    maxWidth: 400,
+  },
+  ourListTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  ourListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    padding: 10,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+  },
+  ourListPoster: {
+    width: 50,
+    height: 75,
+    borderRadius: 4,
+    marginRight: 10,
+  },
+  ourListMovieTitle: {
+    fontSize: 16,
+    flex: 1,
   },
 });
 
