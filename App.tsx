@@ -1,98 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Button, StyleSheet, Image, Modal, TouchableOpacity, ScrollView } from 'react-native';
-import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, doc, updateDoc, onSnapshot, getDoc, setDoc, arrayUnion } from 'firebase/firestore';
+import { View, Text, Image, TouchableOpacity, Modal, StyleSheet, Platform, ScrollView } from 'react-native';
+import { Movie, Provider, AppState } from './types';
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
+import { getFirestore, collection, addDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { initializeApp } from 'firebase/app';
 
-// Initialize Firebase (do this at the top level of your app)
 const firebaseConfig = {
-    apiKey: "AIzaSyBRlM880MkHeieMRiRlCWJedufAQTVkp1A",
-    authDomain: "what-should-we-watch-de872.firebaseapp.com",
-    projectId: "what-should-we-watch-de872",
-    storageBucket: "what-should-we-watch-de872.firebasestorage.app",
-    messagingSenderId: "108831813890",
-    appId: "1:108831813890:web:352c4c88ed3f3e8121521b"
+  // Your Firebase config object
+  apiKey: "AIzaSyBRlM880MkHeieMRiRlCWJedufAQTVkp1A",
+  authDomain: "what-should-we-watch-de872.firebaseapp.com",
+  projectId: "what-should-we-watch-de872",
+  storageBucket: "what-should-we-watch-de872.firebasestorage.app",
+  messagingSenderId: "108831813890",
+  appId: "1:108831813890:web:352c4c88ed3f3e8121521b"
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+// Initialize Firebase
+initializeApp(firebaseConfig);
 
-// Add these constants at the top of your file
-const TMDB_API_KEY = 'da0ecdd247617155169cc70ef1d05bda';
-const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
-const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500';
-const REGION = 'US'; // Change this for different countries
-
-// Add this interface for TypeScript
-interface Movie {
-  id: number;
-  title: string;
-  overview: string;
-  poster_path: string;
-  release_date: string;
-  vote_average: number;
-  providers?: {
-    flatrate?: Array<{ provider_name: string; logo_path: string }>;
-    rent?: Array<{ provider_name: string; logo_path: string }>;
-    buy?: Array<{ provider_name: string; logo_path: string }>;
-  };
-}
-
-// Add this function to fetch providers
-const fetchProviders = async (movieId: number) => {
-  try {
-    const response = await fetch(
-      `${TMDB_BASE_URL}/movie/${movieId}/watch/providers?api_key=${TMDB_API_KEY}`
-    );
-    const data = await response.json();
-    return data.results[REGION] || null;
-  } catch (error) {
-    console.error('Error fetching providers:', error);
-    return null;
-  }
-};
-
-// Move this BEFORE your App function
-const ProvidersSection = ({ providers, type }: { 
-  providers: any, 
-  type: 'flatrate' | 'rent' | 'buy' 
-}) => {
-  if (!providers?.[type]?.length) return null;
-  
-  return (
-    <View style={styles.providersSection}>
-      <Text style={styles.providerTitle}>
-        {type === 'flatrate' ? 'Stream on:' : 
-         type === 'rent' ? 'Rent on:' : 'Buy on:'}
-      </Text>
-      <View style={styles.providersList}>
-        {providers[type].map((provider: any) => (
-          <View key={provider.provider_name} style={styles.providerItem}>
-            <Image
-              source={{ uri: `${TMDB_IMAGE_BASE_URL}${provider.logo_path}` }}
-              style={styles.providerLogo}
-            />
-            <Text style={styles.providerName}>{provider.provider_name}</Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-};
-
-// Update the state interface (add this before App function)
-interface AppState {
-  sessionId: string | null;
-  userId: string | null;
-  currentMovie: Movie | null;
-  likedMoviesCount: number;
-  ourList: Movie[];
-  movieQueue: Movie[];
-  page: number;
-  isOurListVisible: boolean;
-}
-
-function App() {
+export default function App() {
   const [state, setState] = useState<AppState>({
     sessionId: null,
     userId: null,
@@ -101,204 +28,78 @@ function App() {
     ourList: [],
     movieQueue: [],
     page: 1,
+    currentProviders: [],
     isOurListVisible: false,
+    isMovieModalVisible: false,
   });
 
-  // Add this useEffect to listen for matches
-  useEffect(() => {
-    if (!state.sessionId) return;
+  const TMDB_API_KEY = 'da0ecdd247617155169cc70ef1d05bda';
+  const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500';
 
-    const sessionRef = doc(db, 'sessions', state.sessionId);
-    const unsubscribe = onSnapshot(sessionRef, (doc) => {
-      if (doc.exists()) {
-        const sessionData = doc.data();
-        if (sessionData.ourList) {
-          setState(prev => ({
-            ...prev,
-            ourList: sessionData.ourList
-          }));
-        }
-      }
-    });
+  const db = getFirestore();
 
-    return () => unsubscribe();
-  }, [state.sessionId]);
-
-  const createSession = async () => {
-    try {
-      const sessionsRef = collection(db, 'sessions');
-      const docRef = await addDoc(sessionsRef, {
-        createdAt: new Date(),
-        users: [state.userId],
-        likes: {},
-        ourList: []
-      });
-      
-      console.log("Session created with ID: ", docRef.id);
-      return docRef;
-    } catch (error) {
-      console.error("Error creating session: ", error);
-      throw error;
-    }
-  };
-
-  const joinSession = async (code: string) => {
-    try {
-      const sessionRef = doc(db, 'sessions', code);
-      
-      // First check if session exists
-      const sessionDoc = await getDoc(sessionRef);
-      if (!sessionDoc.exists()) {
-        throw new Error('Session not found');
-      }
-
-      // Update the session with the new user
-      await updateDoc(sessionRef, {
-        users: arrayUnion(state.userId)
-      });
-
-      setState(prev => ({
-        ...prev,
-        sessionId: code
-      }));
-    } catch (error) {
-      console.error('Error joining session:', error);
-      alert('Failed to join session. Please check the code and try again.');
-    }
-  };
-
-  useEffect(() => {
-    // Generate a random user ID on mount
-    setState(prev => ({
-      ...prev,
-      userId: Math.random().toString(36).substring(7)
-    }));
-  }, []);
-
-  const handleCreateSession = async () => {
-    try {
-      const session = await createSession();
-      console.log('Created session:', session.id);
-      
-      setState(prev => ({
-        ...prev,
-        sessionId: session.id
-      }));
-    } catch (error) {
-      console.error('Failed to create session:', error);
-    }
-  };
-
-  // Add this function to fetch a batch of movies
-  const fetchMovieBatch = async () => {
-    try {
-      console.log('Fetching movie batch...'); // Debug log
-      const response = await fetch(
-        `${TMDB_BASE_URL}/movie/popular?api_key=${TMDB_API_KEY}&language=en-US&page=${state.page}`
-      );
-      const data = await response.json();
-      console.log('Received movies:', data.results.length); // Debug log
-      
-      setState(prev => ({
-        ...prev,
-        movieQueue: [...prev.movieQueue, ...data.results],
-        page: prev.page + 1
-      }));
-      
-      return data.results;
-    } catch (error) {
-      console.error('Error fetching movies:', error);
-      return [];
-    }
-  };
-
-  // Update your fetchNextMovie function
   const fetchNextMovie = async () => {
     try {
-      console.log('Fetching next movie...'); // Debug log
-      console.log('Current queue length:', state.movieQueue.length); // Debug log
-      
-      // If queue is running low, fetch more movies
-      if (state.movieQueue.length < 5) {
-        console.log('Queue is low, fetching batch...'); // Debug log
-        await fetchMovieBatch();
-      }
-      
-      // Get next movie from queue
-      const nextMovie = state.movieQueue[0];
-      const remainingQueue = state.movieQueue.slice(1);
-      
-      console.log('Next movie:', nextMovie); // Debug log
-      
-      if (nextMovie) {
-        // Fetch providers for the movie
-        const providers = await fetchProviders(nextMovie.id);
-        const movieWithProviders = {
-          ...nextMovie,
-          providers
-        };
-        
-        setState(prev => ({
-          ...prev,
-          currentMovie: movieWithProviders,
-          movieQueue: remainingQueue
+      const response = await fetch(
+        `https://api.themoviedb.org/3/movie/popular?api_key=${TMDB_API_KEY}&page=${state.page}`
+      );
+      const data = await response.json();
+      const movie = data.results[0];
+
+      if (movie) {
+        setState(prevState => ({
+          ...prevState,
+          currentMovie: movie,
+          page: prevState.page + 1
         }));
-        console.log('State updated with new movie'); // Debug log
+        await fetchProviders(movie.id);
       }
     } catch (error) {
       console.error('Error getting next movie:', error);
     }
   };
 
-  // Update handleLike function
-  const handleLike = async () => {
-    if (!state.currentMovie || !state.sessionId) return;
-    
+  const fetchProviders = async (movieId: number) => {
     try {
-      const sessionRef = doc(db, 'sessions', state.sessionId);
-      const movieId = state.currentMovie.id;
+      const response = await fetch(
+        `https://api.themoviedb.org/3/movie/${movieId}/watch/providers?api_key=${TMDB_API_KEY}`
+      );
+      const data = await response.json();
       
-      // Add the like to user's likes in Firebase
-      await updateDoc(sessionRef, {
-        [`likes.${state.userId}.${movieId}`]: true
-      });
-
-      // Check if both users liked this movie
-      const sessionDoc = await getDoc(sessionRef);
-      const sessionData = sessionDoc.data();
-      const otherUserLikes = Object.entries(sessionData?.likes || {})
-        .find(([uid]) => uid !== state.userId)?.[1] || {};
-
-      if (otherUserLikes[movieId]) {
-        // It's a match! Add to ourList
-        const updatedOurList = [...(sessionData.ourList || []), state.currentMovie];
-        await updateDoc(sessionRef, {
-          ourList: updatedOurList
-        });
-      }
-
-      setState(prev => ({
-        ...prev,
-        likedMoviesCount: prev.likedMoviesCount + 1
+      const usProviders = data.results?.US?.flatrate || [];
+      setState(prevState => ({
+        ...prevState,
+        currentProviders: usProviders
       }));
-      
-      await fetchNextMovie();
     } catch (error) {
-      console.error('Error liking movie:', error);
+      console.error('Error fetching providers:', error);
+      setState(prevState => ({
+        ...prevState,
+        currentProviders: []
+      }));
     }
   };
 
-  const handleDislike = async () => {
-    if (!state.currentMovie) return;
+  const handleLike = async () => {
+    setState(prevState => ({
+      ...prevState,
+      likedMoviesCount: prevState.likedMoviesCount + 1
+    }));
     await fetchNextMovie();
   };
 
-  // Add this helper function
+  const handleDislike = async () => {
+    await fetchNextMovie();
+  };
+
   const handleShare = async () => {
-    if (!state.sessionId) return;
+    if (!state.sessionId) {
+      alert('No active session to share');
+      return;
+    }
     
     try {
-      await navigator.clipboard.writeText(state.sessionId);
+      await Clipboard.setStringAsync(state.sessionId);
       alert('Session code copied to clipboard! Share this with your friend.');
     } catch (error) {
       console.error('Error copying to clipboard:', error);
@@ -306,337 +107,509 @@ function App() {
     }
   };
 
-  console.log('Current state:', state);
+  // Initial fetch
+  useEffect(() => {
+    fetchNextMovie();
+  }, []);
+
+  const MovieDetailModal = ({ 
+    movie, 
+    providers, 
+    visible, 
+    onClose 
+  }: { 
+    movie: Movie; 
+    providers: Provider[];
+    visible: boolean; 
+    onClose: () => void;
+  }) => (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Ionicons name="close" size={24} color="#000" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalScroll}>
+            <Text style={styles.modalTitle}>{movie.title}</Text>
+            
+            <Image
+              source={{ uri: `${TMDB_IMAGE_BASE_URL}${movie.poster_path}` }}
+              style={styles.modalPoster}
+            />
+            
+            <View style={styles.modalInfo}>
+              <View style={styles.modalRatingRow}>
+                <Text style={styles.modalYear}>
+                  {new Date(movie.release_date).getFullYear()}
+                </Text>
+                <Text style={styles.modalRating}>
+                  Rating: {movie.vote_average.toFixed(1)}/10
+                </Text>
+              </View>
+
+              <View style={styles.modalWatchOptions}>
+                <Text style={styles.modalSectionTitle}>Watch on:</Text>
+                <View style={styles.modalProviders}>
+                  {providers.length > 0 ? (
+                    providers.map((provider) => (
+                      <View key={provider.provider_id} style={styles.modalProviderItem}>
+                        <Image
+                          source={{ uri: `${TMDB_IMAGE_BASE_URL}${provider.logo_path}` }}
+                          style={styles.modalProviderLogo}
+                        />
+                        <Text style={styles.modalProviderName}>
+                          {provider.provider_name}
+                        </Text>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.noProvidersText}>
+                      No streaming options available
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              <View style={styles.modalOverviewSection}>
+                <Text style={styles.modalSectionTitle}>Overview</Text>
+                <Text style={styles.modalOverview}>{movie.overview}</Text>
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const createSession = async () => {
+    try {
+      // Generate a random userId if not exists
+      const newUserId = state.userId || Math.random().toString(36).substring(7);
+      
+      // Create a new session document
+      const sessionsRef = collection(db, 'sessions');
+      const docRef = await addDoc(sessionsRef, {
+        createdAt: new Date(),
+        users: [newUserId],
+        likes: {},
+        ourList: []
+      });
+
+      // Update state with session and user IDs
+      setState(prevState => ({
+        ...prevState,
+        sessionId: docRef.id,
+        userId: newUserId
+      }));
+
+      console.log('Session created with ID:', docRef.id); // Debug log
+    } catch (error) {
+      console.error('Error creating session:', error);
+      alert('Failed to create session. Please try again.');
+    }
+  };
+
+  const joinSession = async (code: string) => {
+    try {
+      // Generate a random userId if not exists
+      const newUserId = state.userId || Math.random().toString(36).substring(7);
+      
+      const sessionRef = doc(db, 'sessions', code);
+      const sessionDoc = await getDoc(sessionRef);
+
+      if (!sessionDoc.exists()) {
+        alert('Session not found. Please check the code and try again.');
+        return;
+      }
+
+      // Add the new user to the session
+      await updateDoc(sessionRef, {
+        users: [...sessionDoc.data().users, newUserId]
+      });
+
+      // Update state with session and user IDs
+      setState(prevState => ({
+        ...prevState,
+        sessionId: code,
+        userId: newUserId
+      }));
+
+      console.log('Joined session:', code); // Debug log
+    } catch (error) {
+      console.error('Error joining session:', error);
+      alert('Failed to join session. Please check the code and try again.');
+    }
+  };
 
   return (
     <View style={styles.container}>
       {!state.sessionId ? (
         <View style={styles.welcomeContainer}>
-          <Text style={styles.title}>What Should We Watch?</Text>
-          <Button 
-            title="Create Session" 
-            onPress={handleCreateSession}
-          />
-          <Button 
-            title="Join Session" 
-            onPress={() => {
-              const code = prompt('Enter session code:');
-              if (code) joinSession(code);
-            }}
-          />
-        </View>
-      ) : !state.currentMovie ? (
-        // Session created, waiting for movie
-        <View style={styles.mainContainer}>
-          <Text style={styles.sessionInfo}>Session: {state.sessionId}</Text>
-          <Text style={styles.sessionInfo}>User ID: {state.userId}</Text>
-          <Button 
-            title="Copy Session ID" 
-            onPress={() => {
-              navigator.clipboard.writeText(state.sessionId);
-              alert('Session ID copied to clipboard!');
-            }}
-          />
-          <Button 
-            title="Start Matching" 
-            onPress={fetchNextMovie}
-          />
-        </View>
-      ) : (
-        // Movie matching interface
-        <View style={styles.matchingContainer}>
-          <View style={styles.header}>
-            <TouchableOpacity 
-              onPress={handleShare}
-              style={styles.inviteButton}
-            >
-              <Ionicons 
-                name="person-add" 
-                size={24} 
-                color="#666"
-              />
-            </TouchableOpacity>
-
-            <Text style={styles.stats}>
-              Liked: {state.likedMoviesCount}
+          <View style={styles.welcomeContent}>
+            <Ionicons 
+              name="film-outline" 
+              size={80} 
+              color="#007AFF" 
+              style={styles.welcomeIcon}
+            />
+            
+            <Text style={styles.title}>What Should We Watch?</Text>
+            
+            <Text style={styles.subtitle}>
+              Find your next movie to watch together
             </Text>
 
-            <TouchableOpacity 
-              onPress={() => setState(prev => ({ ...prev, isOurListVisible: true }))}
-              style={styles.ourListButton}
-            >
-              <Ionicons 
-                name="heart" 
-                size={24} 
-                color="#ff4b4b"
-              />
-              <Text style={styles.ourListCount}>{state.ourList.length}</Text>
-            </TouchableOpacity>
-          </View>
+            <View style={styles.welcomeButtonContainer}>
+              <TouchableOpacity 
+                style={styles.createButton} 
+                onPress={createSession}
+                activeOpacity={0.8}
+              >
+                <View style={styles.buttonIconContainer}>
+                  <Ionicons name="add-circle" size={24} color="#FFF" />
+                </View>
+                <View style={styles.buttonTextContainer}>
+                  <Text style={styles.buttonPrimaryText}>Create New Session</Text>
+                  <Text style={styles.buttonSecondaryText}>Start matching movies with friends</Text>
+                </View>
+              </TouchableOpacity>
 
-          {/* Our List Modal */}
-          <OurListModal
-            visible={state.isOurListVisible}
-            onClose={() => setState(prev => ({ ...prev, isOurListVisible: false }))}
-            ourList={state.ourList}
-          />
+              <View style={styles.dividerContainer}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or</Text>
+                <View style={styles.dividerLine} />
+              </View>
 
-          <View style={styles.movieCard}>
-            <Text style={styles.movieTitle}>{state.currentMovie.title}</Text>
-            
-            {state.currentMovie.poster_path && (
-              <Image
-                source={{ uri: `${TMDB_IMAGE_BASE_URL}${state.currentMovie.poster_path}` }}
-                style={styles.moviePoster}
-              />
-            )}
-            
-            <Text style={styles.movieYear}>
-              {new Date(state.currentMovie.release_date).getFullYear()}
-            </Text>
-            
-            <Text style={styles.movieRating}>
-              Rating: {state.currentMovie.vote_average}/10
-            </Text>
-            
-            <Text style={styles.movieDescription}>
-              {state.currentMovie.overview}
-            </Text>
-            
-            <View style={styles.providersContainer}>
-              {state.currentMovie.providers && (
-                <>
-                  <ProvidersSection 
-                    providers={state.currentMovie.providers} 
-                    type="flatrate" 
-                  />
-                  <ProvidersSection 
-                    providers={state.currentMovie.providers} 
-                    type="rent" 
-                  />
-                  <ProvidersSection 
-                    providers={state.currentMovie.providers} 
-                    type="buy" 
-                  />
-                </>
-              )}
+              <TouchableOpacity 
+                style={styles.joinButton} 
+                onPress={() => {
+                  const code = prompt('Enter session code:');
+                  if (code) joinSession(code);
+                }}
+                activeOpacity={0.8}
+              >
+                <View style={styles.buttonIconContainer}>
+                  <Ionicons name="enter" size={24} color="#FFF" />
+                </View>
+                <View style={styles.buttonTextContainer}>
+                  <Text style={styles.buttonPrimaryText}>Join Session</Text>
+                  <Text style={styles.buttonSecondaryText}>Enter a friend's session code</Text>
+                </View>
+              </TouchableOpacity>
             </View>
           </View>
+          
+          <Text style={styles.footer}>
+            Made with ❤️ for movie lovers
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.container}>
+          {state.currentMovie && (
+            <View style={styles.matchingContainer}>
+              <View style={styles.header}>
+                <TouchableOpacity 
+                  onPress={handleShare}
+                  style={styles.headerButton}
+                >
+                  <Ionicons name="person-add" size={24} color="#007AFF" />
+                </TouchableOpacity>
 
-          <View style={styles.buttonContainer}>
-            <Button title="👎 Nope" onPress={handleDislike} />
-            <Button title="👍 Like" onPress={handleLike} />
-          </View>
+                <View style={styles.statsContainer}>
+                  <Ionicons name="heart" size={16} color="#ff4b4b" />
+                  <Text style={styles.stats}>{state.likedMoviesCount} Liked</Text>
+                </View>
+
+                <TouchableOpacity 
+                  onPress={() => setState(prev => ({ ...prev, isOurListVisible: true }))}
+                  style={styles.headerButton}
+                >
+                  <View style={styles.matchBadge}>
+                    <Text style={styles.matchCount}>{state.ourList.length}</Text>
+                  </View>
+                  <Ionicons name="heart-circle" size={28} color="#ff4b4b" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.cardContainer}>
+                <TouchableOpacity 
+                  style={styles.cardContainer}
+                  onPress={() => setState(prev => ({ ...prev, isMovieModalVisible: true }))}
+                  activeOpacity={0.9}
+                >
+                  <View style={styles.movieCard}>
+                    <Text style={styles.movieTitle} numberOfLines={2}>
+                      {state.currentMovie.title}
+                    </Text>
+                    
+                    <Image
+                      source={{ uri: `${TMDB_IMAGE_BASE_URL}${state.currentMovie.poster_path}` }}
+                      style={styles.moviePoster}
+                    />
+                    
+                    <View style={styles.infoContainer}>
+                      <View style={styles.ratingRow}>
+                        <View style={styles.ratingBadge}>
+                          <Ionicons name="star" size={16} color="#FFD700" />
+                          <Text style={styles.movieRating}>
+                            {state.currentMovie.vote_average.toFixed(1)}
+                          </Text>
+                        </View>
+                        
+                        <View style={styles.yearBadge}>
+                          <Text style={styles.movieYear}>
+                            {new Date(state.currentMovie.release_date).getFullYear()}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.watchOptionsContainer}>
+                        <Text style={styles.watchOptionsTitle}>Watch on:</Text>
+                        <View style={styles.providersContainer}>
+                          {state.currentProviders.length > 0 ? (
+                            state.currentProviders.map((provider) => (
+                              <View key={provider.provider_id} style={styles.providerItem}>
+                                <Image
+                                  source={{ uri: `${TMDB_IMAGE_BASE_URL}${provider.logo_path}` }}
+                                  style={styles.providerLogo}
+                                />
+                                <Text style={styles.providerName} numberOfLines={1}>
+                                  {provider.provider_name}
+                                </Text>
+                              </View>
+                            ))
+                          ) : (
+                            <Text style={styles.noProvidersText}>
+                              Not currently streaming
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.buttonContainer}>
+                <View style={styles.buttonWrapper}>
+                  <TouchableOpacity 
+                    style={[styles.actionButton, styles.nopeButton]} 
+                    onPress={handleDislike}
+                  >
+                    <Ionicons name="close-circle" size={32} color="#ff4b4b" />
+                    <Text style={[styles.actionButtonText, styles.nopeButtonText]}>Pass</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.buttonWrapper}>
+                  <TouchableOpacity 
+                    style={[styles.actionButton, styles.likeButton]} 
+                    onPress={handleLike}
+                  >
+                    <Ionicons name="heart-circle" size={32} color="#4bff4b" />
+                    <Text style={[styles.actionButtonText, styles.likeButtonText]}>Like</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          )}
+          {state.currentMovie && (
+            <MovieDetailModal
+              movie={state.currentMovie}
+              providers={state.currentProviders}
+              visible={state.isMovieModalVisible}
+              onClose={() => setState(prev => ({ ...prev, isMovieModalVisible: false }))}
+            />
+          )}
         </View>
       )}
     </View>
   );
 }
 
-const OurListModal = ({ 
-  visible, 
-  onClose, 
-  ourList 
-}: { 
-  visible: boolean; 
-  onClose: () => void; 
-  ourList: Movie[]; 
-}) => (
-  <Modal
-    animationType="slide"
-    transparent={true}
-    visible={visible}
-    onRequestClose={onClose}
-  >
-    <View style={styles.modalOverlay}>
-      <View style={styles.modalContent}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Our List</Text>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Ionicons name="close" size={24} color="#000" />
-          </TouchableOpacity>
-        </View>
-        
-        <ScrollView style={styles.ourListScroll}>
-          {ourList.length > 0 ? (
-            ourList.map((movie) => (
-              <View key={movie.id} style={styles.ourListItem}>
-                <Image
-                  source={{ uri: `${TMDB_IMAGE_BASE_URL}${movie.poster_path}` }}
-                  style={styles.ourListPoster}
-                />
-                <View style={styles.ourListItemDetails}>
-                  <Text style={styles.ourListMovieTitle}>{movie.title}</Text>
-                  <Text style={styles.ourListMovieYear}>
-                    {new Date(movie.release_date).getFullYear()}
-                  </Text>
-                </View>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.noMatchesText}>
-              No matches yet! Keep swiping to find movies you both like.
-            </Text>
-          )}
-        </ScrollView>
-      </View>
-    </View>
-  </Modal>
-);
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  welcomeContainer: {
-    alignItems: 'center',
-    gap: 20,
-  },
-  mainContainer: {
-    flex: 1,
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-  },
-  sessionInfo: {
-    fontSize: 16,
-    marginBottom: 10,
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
   },
   matchingContainer: {
     flex: 1,
-    width: '100%',
+    backgroundColor: '#f8f9fa',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
-  },
-  stats: {
-    fontSize: 16,
-    marginBottom: 20,
-  },
-  movieCard: {
-    width: '100%',
-    maxWidth: 400,
-    padding: 20,
-    backgroundColor: '#fff',
-    borderRadius: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  cardContainer: {
+    flex: 1,
+    padding: 15,
+    justifyContent: 'center',
+  },
+  movieCard: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
     elevation: 5,
-    marginBottom: 20,
-  },
-  movieTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  movieDescription: {
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
-    maxWidth: 300,
-    marginTop: 20,
   },
   moviePoster: {
     width: '100%',
-    height: 500,
-    resizeMode: 'cover',
-    borderRadius: 10,
-    marginBottom: 10,
+    height: undefined,
+    aspectRatio: 2/3,
+    borderRadius: 12,
+    marginBottom: 12,
   },
-  movieYear: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 5,
+  infoContainer: {
+    gap: 12,
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  ratingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF9E6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#FFE5B4',
   },
   movieRating: {
-    fontSize: 16,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#B8860B',
+  },
+  yearBadge: {
+    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  movieYear: {
+    fontSize: 14,
+    fontWeight: '600',
     color: '#666',
-    marginBottom: 10,
+  },
+  watchOptionsContainer: {
+    backgroundColor: '#F8F9FA',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+  },
+  watchOptionsTitle: {
+    fontSize: 14,
+    color: '#495057',
+    marginBottom: 8,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   providersContainer: {
-    marginTop: 15,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-    paddingTop: 15,
-  },
-  providersSection: {
-    marginBottom: 15,
-  },
-  providerTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    color: '#333',
-  },
-  providersList: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    justifyContent: 'center',
+    gap: 12,
   },
   providerItem: {
     alignItems: 'center',
-    width: 70,
+    width: 60,
   },
   providerLogo: {
     width: 40,
     height: 40,
     borderRadius: 8,
     marginBottom: 4,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
   },
   providerName: {
-    fontSize: 12,
+    fontSize: 10,
+    color: '#495057',
     textAlign: 'center',
-    color: '#666',
   },
-  ourListContainer: {
-    marginTop: 20,
-    width: '100%',
-    maxWidth: 400,
+  movieDescription: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#444',
   },
-  ourListTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  ourListItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    padding: 10,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
-  },
-  ourListPoster: {
-    width: 50,
-    height: 75,
-    borderRadius: 4,
-    marginRight: 10,
-  },
-  ourListMovieTitle: {
-    fontSize: 16,
-    flex: 1,
-  },
-  header: {
+  buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    width: '100%',
+    paddingVertical: 20,
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    backgroundColor: 'white',
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  buttonWrapper: {
+    paddingHorizontal: 10,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 25,
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  actionButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  nopeButton: {
+    backgroundColor: '#fff0f0',
+    borderWidth: 1,
+    borderColor: '#ff4b4b',
+  },
+  likeButton: {
+    backgroundColor: '#f0fff0',
+    borderWidth: 1,
+    borderColor: '#4bff4b',
+  },
+  nopeButtonText: {
+    color: '#ff4b4b',
+  },
+  likeButtonText: {
+    color: '#4bff4b',
+  },
+  inviteButton: {
+    padding: 8,
+    zIndex: 2,
   },
   ourListButton: {
     flexDirection: 'row',
@@ -648,6 +621,42 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  stats: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '600',
+  },
+  matchBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#ff4b4b',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  matchCount: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  headerButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#f8f9fa',
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+    gap: 6,
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -657,60 +666,191 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    height: '80%',
-    padding: 20,
+    height: '90%',
+    width: '100%',
   },
   modalHeader: {
+    padding: 15,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    justifyContent: 'flex-end',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
   },
   closeButton: {
     padding: 5,
   },
-  ourListScroll: {
+  modalScroll: {
     flex: 1,
   },
-  ourListItem: {
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    padding: 15,
+  },
+  modalPoster: {
+    width: '100%',
+    height: undefined,
+    aspectRatio: 2/3,
+    resizeMode: 'contain',
+  },
+  modalInfo: {
+    padding: 15,
+  },
+  modalRatingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 15,
+  },
+  modalYear: {
+    fontSize: 16,
+    color: '#666',
+  },
+  modalRating: {
+    fontSize: 16,
+    color: '#666',
+  },
+  modalWatchOptions: {
+    marginBottom: 20,
+  },
+  modalSectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+  modalProviders: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 15,
+  },
+  modalProviderItem: {
+    alignItems: 'center',
+    width: 80,
+  },
+  modalProviderLogo: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    marginBottom: 5,
+  },
+  modalProviderName: {
+    fontSize: 12,
+    textAlign: 'center',
+    color: '#666',
+  },
+  modalOverviewSection: {
+    marginTop: 10,
+  },
+  modalOverview: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#333',
+  },
+  noProvidersText: {
+    color: '#666',
+    fontStyle: 'italic',
+    fontSize: 14,
+  },
+  welcomeContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+    justifyContent: 'space-between',
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingBottom: 20,
+  },
+  welcomeContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 30,
+  },
+  welcomeIcon: {
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 12,
+    color: '#1a1a1a',
+  },
+  subtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    color: '#666',
+    marginBottom: 40,
+    lineHeight: 22,
+  },
+  welcomeButtonContainer: {
+    width: '100%',
+    maxWidth: 340,
+    gap: 20,
+  },
+  createButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#007AFF',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#007AFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  joinButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#5856D6',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#5856D6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  buttonIconContainer: {
+    width: 48,
+    height: 48,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 12,
-    padding: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
   },
-  ourListItemDetails: {
+  buttonTextContainer: {
     flex: 1,
-    marginLeft: 15,
   },
-  ourListPoster: {
-    width: 60,
-    height: 90,
-    borderRadius: 8,
-  },
-  ourListMovieTitle: {
-    fontSize: 16,
+  buttonPrimaryText: {
+    color: '#FFF',
+    fontSize: 18,
     fontWeight: '600',
     marginBottom: 4,
   },
-  ourListMovieYear: {
+  buttonSecondaryText: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 13,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E5E5E5',
+  },
+  dividerText: {
+    color: '#666',
+    paddingHorizontal: 16,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  footer: {
     fontSize: 14,
     color: '#666',
-  },
-  noMatchesText: {
     textAlign: 'center',
-    fontSize: 16,
-    color: '#666',
     marginTop: 20,
   },
-  inviteButton: {
-    padding: 8,
-  },
 });
-
-export default App;
