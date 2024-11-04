@@ -37,7 +37,8 @@
     "web": "expo start --web",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d build",
-    "build": "npx expo export:web"
+    "build": "expo build:web",
+    "vercel-build": "npx expo export:web"
   },
   "name": "wanna-watch",
   "version": "1.0.0",
