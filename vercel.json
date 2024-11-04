@@ -5,15 +5,27 @@
       "src": "package.json",
       "use": "@vercel/static-build",
       "config": { 
-        "distDir": "web-build",
-        "baseHref": "/"
+        "distDir": "web-build"
       }
     }
   ],
   "routes": [
     {
+      "src": "/static/(.*)",
+      "headers": { "cache-control": "public, max-age=31536000, immutable" },
+      "dest": "/static/$1"
+    },
+    {
+      "src": "/favicon.ico",
+      "dest": "/favicon.ico"
+    },
+    {
+      "src": "/manifest.json",
+      "dest": "/manifest.json"
+    },
+    {
       "src": "/(.*)",
-      "dest": "/"
+      "dest": "/index.html"
     }
   ]
 } 
