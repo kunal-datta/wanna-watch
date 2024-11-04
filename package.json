@@ -65,7 +65,7 @@
     "@react-native-community/cli": "^15.0.1",
     "@types/react-native": "^0.72.8"
   },
-  "homepage": "https://kunal-datta.github.io/wanna-watch",
+  "homepage": ".",
   "engines": {
     "node": ">=16.0.0"
   }
