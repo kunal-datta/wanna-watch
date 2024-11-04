@@ -1,22 +1,4 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc } from 'firebase/firestore';
-
-// Initialize Firebase (do this once at app startup)
-const firebaseConfig = {
-    // Your firebase config here
-    apiKey: "your-api-key",
-    authDomain: "your-auth-domain",
-    projectId: "your-project-id",
-    storageBucket: "your-storage-bucket",
-    messagingSenderId: "your-messaging-sender-id",
-    appId: "your-app-id"
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-
-// Initialize Firestore
-const db = getFirestore(app);
+import { app, db, auth } from './src/firebase/config';
 
 // Example createSession function
 const createSession = async () => {

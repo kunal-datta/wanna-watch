@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet, ScrollView } from 'react-native';
 import { TMDB_IMAGE_BASE_URL } from '../config/env';
+import { db, auth } from '../firebase/config';
 
 interface Provider {
   provider_name: string;
