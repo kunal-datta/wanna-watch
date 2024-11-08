@@ -11,6 +11,13 @@ yarn install
 
 ## Running the App
 
+### Backend
+
+```
+cd backend
+poetry run uvicorn src.server:app --reload --port 8000
+```
+
 You can run the app in different modes:
 
 ### Development Mode
@@ -39,6 +46,20 @@ You can run the app in different modes:
 3. Scan the QR code with:
    - iOS: Use the device's camera
    - Android: Use the Expo Go app's QR scanner
+
+### Making Backend Requests
+
+#### Get Trending Movies
+```
+curl -XGET "http://localhost:8000/api/movies/trending"
+```
+
+#### Get Streaming Availability
+```
+curl -XGET "http://localhost:8000/api/movies/streaming?movie_ids=1244492&movie_ids=933260"
+```
+
+
 
 ## Requirements
 
