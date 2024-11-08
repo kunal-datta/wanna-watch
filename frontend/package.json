@@ -11,7 +11,6 @@
     "axios": "^1.7.7",
     "buffer": "^6.0.3",
     "crypto-browserify": "^3.12.1",
-    "default-connector": "file:dataconnect-generated/js/default-connector",
     "expo": "~51.0.38",
     "expo-clipboard": "~6.0.3",
     "expo-status-bar": "~1.12.1",

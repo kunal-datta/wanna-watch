@@ -22,6 +22,16 @@ You can run the app in different modes:
 
 ### Development Mode
 
+#### Checkout frontend
+```
+cd frontend
+```
+
+#### Install dependencies
+```
+yarn install
+```
+
 #### Start Expo development server
 `yarn expo start`
 
@@ -59,6 +69,14 @@ curl -XGET "http://localhost:8000/api/movies/trending"
 curl -XGET "http://localhost:8000/api/movies/streaming?movie_ids=1244492&movie_ids=933260"
 ```
 
+## Building and Running the Container
+
+```
+./scripts/build-container.sh
+./scripts/run-container.sh
+```
+
+This will build the container and run it, exposing port 80.
 
 
 ## Requirements
